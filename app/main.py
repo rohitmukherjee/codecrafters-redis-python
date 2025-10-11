@@ -1,6 +1,7 @@
 import re
 import selectors
 import socket  # noqa: F401
+from abc import ABC, abstractmethod
 
 STRING_ENCODING: str = "utf-8"
 MAX_BYTES: int = 1024
@@ -12,6 +13,7 @@ CARRIAGE_RETURN: str = "\r"
 class KVStore:
     def __init__(self):
         self.selector = selectors.DefaultSelector()
+        self.commands: list[Command] = [Get(), Set(), Ping(), Echo()]
         self.store = {}
 
     def accept_connection(self, server_sock: socket):
@@ -33,17 +35,13 @@ class KVStore:
                 data: str = raw_data.decode(STRING_ENCODING)
                 data_list: list[str] = re.split(r'[\r\n]+', data)
                 print(data_list)
-                if Command.is_ping(data_list):
-                    self.handle_ping(client_socket)
-                elif Command.is_echo(data_list):
-                    self.handle_echo(client_socket, data_list)
-                elif Command.is_set(data_list):
-                    self.handle_set(client_socket, data_list)
-                elif Command.is_get(data_list):
-                    self.handle_get(client_socket, data_list)
-                else:
+                found_matching_command: bool = False
+                for command in self.commands:
+                    if command.is_command(data_list):
+                        found_matching_command = True
+                        command.handle(client_socket, data_list, self.store)
+                if not found_matching_command:
                     print("Unrecognized Command")
-
 
         except ConnectionError:
             self.selector.unregister(client_socket)
@@ -61,53 +59,71 @@ class KVStore:
                 callback(key.fileobj)
         # server_socket.close()
 
-    def handle_ping(self, client_socket: socket):
-        client_socket.send(Response.PPONG_RESPONSE_BYTES)
 
-    def handle_set(self, client_socket: socket, data_list: list[str]):
-        key: str = data_list[4]
-        value: str = data_list[6]
-        self.store[key] = value
-        print(str(self.store))
-        client_socket.send(Response.encode_resp(Response.OK))
+class Command(ABC):
+    @abstractmethod
+    def is_command(self, data_list: list[str]) -> bool:
+        pass
 
-    def handle_get(self, client_socket: socket, data_list: list[str]):
-        key: str = data_list[4]
-        if key in self.store:
-            client_socket.send(Response.encode_resp(self.store[key]))
-        else:
-            client_socket.send(Response.NULL_BULK_STRING_BYTES)
+    @abstractmethod
+    def handle(self, client_socket: socket, data_list: list[str], store: dict):
+        pass
 
-    def handle_echo(self, client_socket: socket, data_list: list[str]):
+
+class Ping(Command):
+    def __init__(self):
+        self.name = "PING"
+
+    def is_command(self, data: list[str]) -> bool:
+        return len(data) == 4 and data[2].upper() == self.name
+
+    def handle(self, client_socket: socket, data_list: list[str], store: dict):
+        client_socket.send(Response.PONG_RESPONSE_BYTES)
+
+
+class Echo(Command):
+    def __init__(self):
+        self.name = "ECHO"
+
+    def is_command(self, data_list: list[str]) -> bool:
+        return len(data_list) == 6 and data_list[2].upper() == self.name
+
+    def handle(self, client_socket: socket, data_list: list[str], store: dict):
         client_socket.send(Response.encode_resp(data_list[4]))
 
 
-class Command:
-    PING: str = "PING"
-    ECHO: str = "ECHO"
-    GET: str = "GET"
-    SET: str = "SET"
+class Get(Command):
+    def __init__(self):
+        self.name = "GET"
 
-    @staticmethod
-    def is_echo(data: list[str]) -> bool:
-        return len(data) > 2 and data[2].upper() == Command.ECHO and len(data) == 6
+    def is_command(self, data_list: list[str]) -> bool:
+        return len(data_list) == 6 and data_list[2].upper() == self.name
 
-    @staticmethod
-    def is_ping(data: list[str]) -> bool:
-        return len(data) > 2 and data[2].upper() == Command.PING and len(data) == 4
+    def handle(self, client_socket: socket, data_list: list[str], store: dict):
+        key: str = data_list[4]
+        if key in store:
+            client_socket.send(Response.encode_resp(store[key]))
+        else:
+            client_socket.send(Response.NULL_BULK_STRING_BYTES)
 
-    @staticmethod
-    def is_get(data: list[str]) -> bool:
-        return len(data) > 2 and data[2].upper() == Command.GET and len(data) == 6
 
-    @staticmethod
-    def is_set(data: list[str]):
-        return len(data) > 2 and data[2].upper() == Command.SET and len(data) == 8
+class Set(Command):
+    def __init__(self):
+        self.name = "SET"
+
+    def is_command(self, data_list: list[str]) -> bool:
+        return len(data_list) >= 8 and data_list[2].upper() == self.name
+
+    def handle(self, client_socket: socket, data_list: list[str], store: dict):
+        key: str = data_list[4]
+        value: str = data_list[6]
+        store[key] = value
+        client_socket.send(Response.encode_resp(Response.OK))
 
 
 class Response:
     OK: str = "OK"
-    PPONG_RESPONSE_BYTES: bytes = "+PONG\r\n".encode(STRING_ENCODING)
+    PONG_RESPONSE_BYTES: bytes = "+PONG\r\n".encode(STRING_ENCODING)
     NULL_BULK_STRING_BYTES: bytes = "$-1\r\n".encode(STRING_ENCODING)
 
     @staticmethod
