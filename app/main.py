@@ -1,10 +1,16 @@
+import re
 import selectors
 import socket  # noqa: F401
 
 PONG_RESPONSE: str = "+PONG\r\n"
-PONG_RESPONSE_BYTES: bytes = PONG_RESPONSE.encode("utf-8")
+STRING_ENCODING: str = "utf-8"
+PONG_RESPONSE_BYTES: bytes = PONG_RESPONSE.encode(STRING_ENCODING)
 MAX_BYTES: int = 1024
 REDIS_PORT: int = 6379
+NEW_LINE: str = "\n"
+CARRIAGE_RETURN: str = "\r"
+PING_COMMAND: str = "PING"
+ECHO_COMMAND: str = "ECHO"
 
 selector = selectors.DefaultSelector()
 
@@ -18,15 +24,30 @@ def accept_connection(server_sock: socket):
     selector.register(client_socket, selectors.EVENT_READ, read_message)
 
 
+def is_echo(data: list[str]) -> bool:
+    return len(data) > 2 and data[2].upper() == ECHO_COMMAND
+
+
+def is_ping(data: list[str]) -> bool:
+    return len(data) > 2 and data[2].upper() == PING_COMMAND
+
+
 def read_message(client_socket: socket):
     try:
-        data = client_socket.recv(MAX_BYTES)
-        if not data:  # client closed
+        raw_data: bytes = client_socket.recv(MAX_BYTES)
+        if not raw_data:  # client closed
             print("Client disconnected")
             selector.unregister(client_socket)
             client_socket.close()
         else:
-            client_socket.send(PONG_RESPONSE_BYTES)
+            data: str = raw_data.decode(STRING_ENCODING)
+            data_list: list[str] = re.split(r'[\r\n]+', data)
+            print(data_list)
+            if is_ping(data_list):
+                handle_ping(client_socket)
+            elif is_echo(data_list):
+                handle_echo(client_socket, data_list)
+
     except ConnectionError:
         selector.unregister(client_socket)
         client_socket.close()
@@ -43,6 +64,17 @@ def main():
             callback = key.data
             callback(key.fileobj)
     # server_socket.close()
+
+
+def handle_ping(client_socket: socket):
+    client_socket.send(PONG_RESPONSE_BYTES)
+
+
+def handle_echo(client_socket: socket, data_list: list[str]):
+    response_string: str = data_list[4]
+    response = f"${len(response_string)}{CARRIAGE_RETURN}{NEW_LINE}{response_string}{CARRIAGE_RETURN}{NEW_LINE}"
+    print("Sending back: " + response)
+    client_socket.send(response.encode(STRING_ENCODING))
 
 
 if __name__ == "__main__":
