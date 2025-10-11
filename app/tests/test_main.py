@@ -1,37 +1,69 @@
-from app.main import is_echo, is_ping
+from app.main import Command, Response
 
 
-def test_is_echo_returns_true_for_resp_echo_command():
-    data = ["*2", "$4", "ECHO", "$3", "hey"]
+def test_command_is_echo_returns_true_for_resp_echo_command():
+    data = ["*2", "$4", "ECHO", "$3", "hey", '']
 
-    assert is_echo(data) is True
-
-
-def test_is_echo_handles_mixed_case_command():
-    data = ["*2", "$4", "eChO", "$3", "hi"]
-
-    assert is_echo(data) is True
+    assert Command.is_echo(data) is True
 
 
-def test_is_echo_returns_false_when_payload_is_too_short():
+def test_command_is_echo_handles_mixed_case_command():
+    data = ["*2", "$4", "eChO", "$3", "hi", '']
+
+    assert Command.is_echo(data) is True
+
+
+def test_command_is_echo_returns_false_when_payload_is_too_short():
     data = ["*1", "$4"]
 
-    assert is_echo(data) is False
+    assert Command.is_echo(data) is False
 
 
-def test_is_ping_returns_true_for_resp_ping_command():
-    data = ["*1", "$4", "PING"]
+def test_command_is_ping_returns_true_for_resp_ping_command():
+    data = ["*1", "$4", "PING", '']
 
-    assert is_ping(data) is True
-
-
-def test_is_ping_handles_mixed_case_command():
-    data = ["*1", "$4", "pInG"]
-
-    assert is_ping(data) is True
+    assert Command.is_ping(data) is True
 
 
-def test_is_ping_returns_false_when_payload_is_too_short():
+def test_command_is_ping_handles_mixed_case_command():
+    data = ["*1", "$4", "pInG", '']
+
+    assert Command.is_ping(data) is True
+
+
+def test_command_is_ping_returns_false_when_payload_is_too_short():
     data = ["$4", "PING"]
 
-    assert is_ping(data) is False
+    assert Command.is_ping(data) is False
+
+
+def test_command_is_get_identifies_get_command():
+    data = ["*2", "$3", "GET", "$3", "key", '']
+
+    assert Command.is_get(data) is True
+
+
+def test_command_is_get_rejects_non_matching_command():
+    data = ["*2", "$3", "SET", "$3", "key"]
+
+    assert Command.is_get(data) is False
+
+
+def test_command_is_set_identifies_set_command():
+    data = ["*3", "$3", "SET", "$3", "key", "$5", "value", '']
+
+    assert Command.is_set(data) is True
+
+
+def test_command_is_set_rejects_non_matching_command():
+    data = ["*2", "$3", "GET", "$3", "key"]
+
+    assert Command.is_set(data) is False
+
+
+def test_response_encode_resp_returns_bulk_string():
+    assert Response.encode_resp("PONG") == b"$4\r\nPONG\r\n"
+
+
+def test_response_encode_resp_returns_empty_bytes_for_none():
+    assert Response.encode_resp(None) == b""
