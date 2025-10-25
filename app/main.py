@@ -1,6 +1,7 @@
 import re
 import selectors
 import socket  # noqa: F401
+import time
 from abc import ABC, abstractmethod
 
 STRING_ENCODING: str = "utf-8"
@@ -69,6 +70,9 @@ class Command(ABC):
     def handle(self, client_socket: socket, data_list: list[str], store: dict):
         pass
 
+    def get_options(self, data_list: list[str]) -> dict[str, str]:
+        return {}
+
 
 class Ping(Command):
     def __init__(self):
@@ -99,10 +103,21 @@ class Get(Command):
     def is_command(self, data_list: list[str]) -> bool:
         return len(data_list) == 6 and data_list[2].upper() == self.name
 
+    @staticmethod
+    def current_millis():
+        return round(time.time() * 1000)
+
     def handle(self, client_socket: socket, data_list: list[str], store: dict):
         key: str = data_list[4]
         if key in store:
-            client_socket.send(Response.encode_resp(store[key]))
+            value_dict = store[key]
+            if "expiryTimeMillis" in value_dict:
+                if Get.current_millis() > value_dict["expiryTimeMillis"]:
+                    client_socket.send(Response.NULL_BULK_STRING_BYTES)
+                else:
+                    client_socket.send(Response.encode_resp(value_dict["value"]))
+            else:
+                client_socket.send(Response.encode_resp(value_dict["value"]))
         else:
             client_socket.send(Response.NULL_BULK_STRING_BYTES)
 
@@ -111,13 +126,29 @@ class Set(Command):
     def __init__(self):
         self.name = "SET"
 
+    def get_options(self, data_list: list[str]) -> dict[str, str]:
+        options = {}
+        if len(data_list) > 8:
+            option = data_list[8]
+            if option == "EX" or option == "PX":
+                options[option] = int(data_list[10])
+        return options
+
     def is_command(self, data_list: list[str]) -> bool:
         return len(data_list) >= 8 and data_list[2].upper() == self.name
+
+    @staticmethod
+    def current_millis():
+        return round(time.time() * 1000)
 
     def handle(self, client_socket: socket, data_list: list[str], store: dict):
         key: str = data_list[4]
         value: str = data_list[6]
-        store[key] = value
+        value_dict: dict = {"value": value}
+        for option, option_value in self.get_options(data_list).items():
+            expiration_millis: int = option_value if option == "PX" else (int(option_value) * 1000)
+            value_dict["expiryTimeMillis"] = Set.current_millis() + expiration_millis
+        store[key] = value_dict
         client_socket.send(Response.encode_resp(Response.OK))
 
 

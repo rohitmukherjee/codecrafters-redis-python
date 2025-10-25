@@ -54,6 +54,20 @@ def test_command_is_get_rejects_non_matching_command():
     assert getCommand.is_command(data) is False
 
 
+def test_command_is_set_with_options_identifies_set_command():
+    data = ['*5', '$3', 'SET', '$5', 'apple', '$9', 'pineapple', '$2', 'PX', '$3', '100', '']
+
+    assert setCommand.is_command(data) is True
+
+
+def test_get_options_for_set_command():
+    data = ['*5', '$3', 'SET', '$5', 'apple', '$9', 'pineapple', '$2', 'PX', '$3', '100', '']
+    command = Set()
+    options: dict = command.get_options(data)
+    assert "PX" in options
+    assert options["PX"] == 100
+
+
 def test_command_is_set_identifies_set_command():
     data = ["*3", "$3", "SET", "$3", "key", "$5", "value", '']
 
