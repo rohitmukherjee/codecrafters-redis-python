@@ -4,6 +4,7 @@ pingCommand = Ping()
 getCommand = Get()
 setCommand = Set()
 echoCommand = Echo()
+rpushCommand = RPush()
 
 
 def test_command_is_echo_returns_true_for_resp_echo_command():
@@ -86,3 +87,9 @@ def test_response_encode_resp_returns_bulk_string():
 
 def test_response_encode_resp_returns_empty_bytes_for_none():
     assert Response.encode_resp(None) == b""
+
+# RPush Test Cases
+
+def test_command_is_rpush_command():
+    data = ['*3', '$5', 'RPUSH', '$8', 'list_key', '$3', 'foo', '']
+    assert rpushCommand.is_command(data)

@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import re
 import selectors
 import socket  # noqa: F401
 import time
 from abc import ABC, abstractmethod
+from typing import Union
 
 STRING_ENCODING: str = "utf-8"
 MAX_BYTES: int = 1024
@@ -14,7 +17,7 @@ CARRIAGE_RETURN: str = "\r"
 class KVStore:
     def __init__(self):
         self.selector = selectors.DefaultSelector()
-        self.commands: list[Command] = [Get(), Set(), Ping(), Echo()]
+        self.commands: list[Command] = [Get(), Set(), Ping(), Echo(), RPush()]
         self.store = {}
 
     def accept_connection(self, server_sock: socket):
@@ -47,6 +50,9 @@ class KVStore:
         except ConnectionError:
             self.selector.unregister(client_socket)
             client_socket.close()
+
+    def get_value(self, key: str) -> Union[dict, None]:
+        return self.store.get(key)
 
     def start(self):
         server_socket = socket.create_server(("localhost", REDIS_PORT), reuse_port=False)
@@ -110,7 +116,7 @@ class Get(Command):
     def handle(self, client_socket: socket, data_list: list[str], store: dict):
         key: str = data_list[4]
         if key in store:
-            value_dict = store[key]
+            value_dict = store.get(key)
             if "expiryTimeMillis" in value_dict:
                 if Get.current_millis() > value_dict["expiryTimeMillis"]:
                     client_socket.send(Response.NULL_BULK_STRING_BYTES)
@@ -120,6 +126,35 @@ class Get(Command):
                 client_socket.send(Response.encode_resp(value_dict["value"]))
         else:
             client_socket.send(Response.NULL_BULK_STRING_BYTES)
+
+
+class RPush(Command):
+
+    def __init__(self):
+        self.name = "RPUSH"
+
+    def is_command(self, data_list: list[str]) -> bool:
+        return len(data_list) == 8 and data_list[2].upper() == self.name
+
+    @staticmethod
+    def get_key(data_list: list[str]) -> Union[str, None]:
+        return data_list[4]
+
+    @staticmethod
+    def get_value_to_insert(data_list: list[str]) -> Union[str, None]:
+        return data_list[6]
+
+    def handle(self, client_socket: socket, data_list: list[str], store: dict):
+        key = self.get_key(data_list)
+        if key not in store:
+            store[key] = {}
+        value_dict = store.get(key)
+        if "value" not in value_dict:
+            value_dict["value"] = list()
+        value_dict["value"].append(self.get_value_to_insert(data_list))
+        size: int = len(value_dict["value"])
+        print(store[key])
+        client_socket.send(Response.encode_integer_resp(size))
 
 
 class Set(Command):
@@ -164,6 +199,15 @@ class Response:
         else:
             return f"${len(response)}{CARRIAGE_RETURN}{NEW_LINE}{response}{CARRIAGE_RETURN}{NEW_LINE}".encode(
                 STRING_ENCODING)
+
+    @staticmethod
+    def encode_integer_resp(value: int) -> bytes:
+        if value is None:
+            return Response.NULL_BULK_STRING_BYTES
+        else:
+            sign: str = "" if int(value) > 0 else "-"
+            print(sign)
+            return f":{sign}{value}{CARRIAGE_RETURN}{NEW_LINE}".encode(STRING_ENCODING)
 
 
 if __name__ == "__main__":
