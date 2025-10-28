@@ -5,6 +5,7 @@ getCommand = Get()
 setCommand = Set()
 echoCommand = Echo()
 rpushCommand = RPush()
+lrangeCommand = LRange()
 
 
 def test_command_is_echo_returns_true_for_resp_echo_command():
@@ -82,11 +83,11 @@ def test_command_is_set_rejects_non_matching_command():
 
 
 def test_response_encode_resp_returns_bulk_string():
-    assert Response.encode_resp("PONG") == b"$4\r\nPONG\r\n"
+    assert Response.encode_resp_string_bytes("PONG") == b"$4\r\nPONG\r\n"
 
 
 def test_response_encode_resp_returns_empty_bytes_for_none():
-    assert Response.encode_resp(None) == b""
+    assert Response.encode_resp_string_bytes(None) == b""
 
 
 # RPush Test Cases
@@ -101,3 +102,15 @@ def test_get_values_to_insert():
     data = ['*5', '$5', 'RPUSH', '$8', 'list_key', '$3', 'foo', '$3', 'bar', '$3', 'baz', '']
     assert rpushCommand.get_key(data) == "list_key"
     assert rpushCommand.get_values_to_insert(data) == ["foo", "bar", "baz"]
+
+# LRange Test Cases
+def test_LRange_is_command():
+    data = ['*4', '$6', 'LRANGE', '$8', 'list_key', '$1', '0', '$1', '2', '']
+    assert lrangeCommand.is_command(data)
+
+# RESP Encoding Test Cases
+
+def test_RESP_encoding_for_arrays():
+    assert Response.encode_resp_array(["hello", "world"]) == "*2\r\n$5\r\nhello\r\n$5\r\nworld\r\n"
+    assert Response.encode_resp_array([1, 2, 3]) == "*3\r\n:1\r\n:2\r\n:3\r\n"
+    assert Response.encode_resp_array([1, 2, 3, 4, "hello"]) == "*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n$5\r\nhello\r\n"

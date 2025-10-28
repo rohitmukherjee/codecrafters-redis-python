@@ -17,7 +17,7 @@ CARRIAGE_RETURN: str = "\r"
 class KVStore:
     def __init__(self):
         self.selector = selectors.DefaultSelector()
-        self.commands: list[Command] = [Get(), Set(), Ping(), Echo(), RPush()]
+        self.commands: list[Command] = [Get(), Set(), Ping(), Echo(), RPush(), LRange()]
         self.store = {}
 
     def accept_connection(self, server_sock: socket):
@@ -99,7 +99,35 @@ class Echo(Command):
         return len(data_list) == 6 and data_list[2].upper() == self.name
 
     def handle(self, client_socket: socket, data_list: list[str], store: dict):
-        client_socket.send(Response.encode_resp(data_list[4]))
+        client_socket.send(Response.encode_resp_string_bytes(data_list[4]))
+
+
+class LRange(Command):
+    def __init__(self):
+        self.name = "LRANGE"
+
+    def is_command(self, data_list: list[str]) -> bool:
+        return len(data_list) == 10 and data_list[2].upper() == self.name
+
+    @staticmethod
+    def get_key(data_list: list[str]) -> str:
+        return data_list[4]
+
+    @staticmethod
+    def get_start_and_end_indices(data_list: list[str]) -> tuple[int, int]:
+        return int(data_list[6]), int(data_list[8])
+
+    def handle(self, client_socket: socket, data_list: list[str], store: dict):
+        key: str = LRange.get_key(data_list)
+        start_index, end_index = LRange.get_start_and_end_indices(data_list)
+        value_dict: dict = store.get(key)
+        if start_index < 0 or value_dict is None or "value" not in value_dict:
+            client_socket.send(Response.encode_resp_array_bytes([]))
+        else:
+            array: list = value_dict.get("value")
+            if end_index < 0:
+                end_index = len(array) - end_index
+            client_socket.send(Response.encode_resp_array_bytes(array[start_index:end_index + 1]))
 
 
 class Get(Command):
@@ -121,9 +149,9 @@ class Get(Command):
                 if Get.current_millis() > value_dict["expiryTimeMillis"]:
                     client_socket.send(Response.NULL_BULK_STRING_BYTES)
                 else:
-                    client_socket.send(Response.encode_resp(value_dict["value"]))
+                    client_socket.send(Response.encode_resp_string_bytes(value_dict["value"]))
             else:
-                client_socket.send(Response.encode_resp(value_dict["value"]))
+                client_socket.send(Response.encode_resp_string_bytes(value_dict["value"]))
         else:
             client_socket.send(Response.NULL_BULK_STRING_BYTES)
 
@@ -159,7 +187,7 @@ class RPush(Command):
             value_dict["value"].append(values_to_insert)
         size: int = len(value_dict["value"])
         print(store[key])
-        client_socket.send(Response.encode_integer_resp(size))
+        client_socket.send(Response.encode_resp_integer_bytes(size))
 
 
 class Set(Command):
@@ -189,30 +217,59 @@ class Set(Command):
             expiration_millis: int = option_value if option == "PX" else (int(option_value) * 1000)
             value_dict["expiryTimeMillis"] = Set.current_millis() + expiration_millis
         store[key] = value_dict
-        client_socket.send(Response.encode_resp(Response.OK))
+        client_socket.send(Response.encode_resp_string_bytes(Response.OK))
 
 
 class Response:
     OK: str = "OK"
     PONG_RESPONSE_BYTES: bytes = "+PONG\r\n".encode(STRING_ENCODING)
-    NULL_BULK_STRING_BYTES: bytes = "$-1\r\n".encode(STRING_ENCODING)
+    NULL_BULK_STRING: str = "$-1\r\n"
+    NULL_BULK_STRING_BYTES: bytes = NULL_BULK_STRING.encode(STRING_ENCODING)
+    NULL_ARRAY_STRING: str = "*0\r\n"
+    NULL_ARRAY_STRING_BYTES: bytes = NULL_ARRAY_STRING.encode(STRING_ENCODING)
 
     @staticmethod
-    def encode_resp(response: str) -> bytes:
-        if response is None:
-            return "".encode(STRING_ENCODING)
+    def encode_resp_array_bytes(array: list) -> bytes:
+        return Response.encode_resp_array(array).encode(STRING_ENCODING)
+
+    @staticmethod
+    def encode_resp_array(array: list) -> str:
+        if array is None or len(array) == 0:
+            return Response.NULL_ARRAY_STRING
         else:
-            return f"${len(response)}{CARRIAGE_RETURN}{NEW_LINE}{response}{CARRIAGE_RETURN}{NEW_LINE}".encode(
-                STRING_ENCODING)
+            response: str = f"*{len(array)}\r\n"
+            for element in array:
+                if type(element) is int:
+                    response += Response.encode_resp_integer(element)
+                elif type(element) is list:
+                    response += Response.encode_resp_array(element)
+                else:
+                    response += Response.encode_resp_string(element)
+            return response
 
     @staticmethod
-    def encode_integer_resp(value: int) -> bytes:
+    def encode_resp_string(string: str) -> str:
+        if string is None:
+            return ""
+        else:
+            return f"${len(string)}{CARRIAGE_RETURN}{NEW_LINE}{string}{CARRIAGE_RETURN}{NEW_LINE}"
+
+    @staticmethod
+    def encode_resp_string_bytes(string: str) -> bytes:
+        return Response.encode_resp_string(string).encode(STRING_ENCODING)
+
+    @staticmethod
+    def encode_resp_integer(value: int) -> str:
         if value is None:
-            return Response.NULL_BULK_STRING_BYTES
+            return Response.NULL_BULK_STRING
         else:
             sign: str = "" if int(value) > 0 else "-"
             print(sign)
-            return f":{sign}{value}{CARRIAGE_RETURN}{NEW_LINE}".encode(STRING_ENCODING)
+            return f":{sign}{value}{CARRIAGE_RETURN}{NEW_LINE}"
+
+    @staticmethod
+    def encode_resp_integer_bytes(value: int) -> bytes:
+        return Response.encode_resp_integer(value).encode(STRING_ENCODING)
 
 
 if __name__ == "__main__":
