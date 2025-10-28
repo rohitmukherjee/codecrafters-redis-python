@@ -134,24 +134,29 @@ class RPush(Command):
         self.name = "RPUSH"
 
     def is_command(self, data_list: list[str]) -> bool:
-        return len(data_list) == 8 and data_list[2].upper() == self.name
+        return len(data_list) >= 8 and data_list[2].upper() == self.name
 
     @staticmethod
     def get_key(data_list: list[str]) -> Union[str, None]:
         return data_list[4]
 
     @staticmethod
-    def get_value_to_insert(data_list: list[str]) -> Union[str, None]:
-        return data_list[6]
+    def get_values_to_insert(data_list: list[str]) -> list[str]:
+        values_to_insert = []
+        for i in range(6, len(data_list), 2):
+            values_to_insert.append(data_list[i])
+        return values_to_insert
 
     def handle(self, client_socket: socket, data_list: list[str], store: dict):
         key = self.get_key(data_list)
+        values_to_insert = self.get_values_to_insert(data_list)
         if key not in store:
             store[key] = {}
         value_dict = store.get(key)
         if "value" not in value_dict:
             value_dict["value"] = list()
-        value_dict["value"].append(self.get_value_to_insert(data_list))
+        for values_to_insert in values_to_insert:
+            value_dict["value"].append(values_to_insert)
         size: int = len(value_dict["value"])
         print(store[key])
         client_socket.send(Response.encode_integer_resp(size))

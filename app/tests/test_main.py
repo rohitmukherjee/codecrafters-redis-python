@@ -88,8 +88,16 @@ def test_response_encode_resp_returns_bulk_string():
 def test_response_encode_resp_returns_empty_bytes_for_none():
     assert Response.encode_resp(None) == b""
 
+
 # RPush Test Cases
 
 def test_command_is_rpush_command():
     data = ['*3', '$5', 'RPUSH', '$8', 'list_key', '$3', 'foo', '']
     assert rpushCommand.is_command(data)
+    assert rpushCommand.get_values_to_insert(data) == ["foo"]
+
+
+def test_get_values_to_insert():
+    data = ['*5', '$5', 'RPUSH', '$8', 'list_key', '$3', 'foo', '$3', 'bar', '$3', 'baz', '']
+    assert rpushCommand.get_key(data) == "list_key"
+    assert rpushCommand.get_values_to_insert(data) == ["foo", "bar", "baz"]
