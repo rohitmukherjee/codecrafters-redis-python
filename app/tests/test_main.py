@@ -5,7 +5,45 @@ getCommand = Get()
 setCommand = Set()
 echoCommand = Echo()
 rpushCommand = RPush()
+lpushCommand = LPush()
 lrangeCommand = LRange()
+
+
+class DummySocket:
+    def __init__(self):
+        self.sent_messages: list[bytes] = []
+
+    def send(self, data: bytes):
+        self.sent_messages.append(data)
+
+
+def build_lrange_payload(start: int, end: int) -> list[str]:
+    return [
+        '*4',
+        '$6',
+        'LRANGE',
+        '$8',
+        'list_key',
+        f'${len(str(start))}',
+        str(start),
+        f'${len(str(end))}',
+        str(end),
+        ''
+    ]
+
+
+def build_lpush_payload(*values: str, key: str = 'list_key') -> list[str]:
+    payload = [
+        f'*{2 + len(values)}',
+        '$5',
+        'LPUSH',
+        f'${len(key)}',
+        key,
+    ]
+    for value in values:
+        payload.extend([f'${len(value)}', value])
+    payload.append('')
+    return payload
 
 
 def test_command_is_echo_returns_true_for_resp_echo_command():
@@ -117,6 +155,82 @@ def test_lrange_index_extraction():
                                                    5) == (3, 4)
     assert lrangeCommand.get_start_and_end_indices(['*4', '$6', 'LRANGE', '$8', 'list_key', '$1', '-3', '$1', '-1', ''],
                                                    5) == (2, 4)
+
+
+# Test cases for lpush
+def test_command_is_lpush_command():
+    data = ['*3', '$5', 'LPUSH', '$8', 'list_key', '$1', 'a', '']
+    assert lpushCommand.is_command(data)
+
+
+def test_lpush_get_values_to_insert_preserves_argument_order():
+    data = ['*5', '$5', 'LPUSH', '$8', 'list_key', '$1', 'a', '$1', 'b', '$1', 'c', '']
+    assert lpushCommand.get_key(data) == 'list_key'
+    print(lpushCommand.get_values_to_insert(data))
+    assert lpushCommand.get_values_to_insert(data) == ['c', 'b', 'a']
+
+
+def test_lpush_handle_creates_list_and_prepends_values():
+    store: dict = {}
+    socket = DummySocket()
+    payload = build_lpush_payload('a', 'b', 'c')
+
+    lpushCommand.handle(socket, payload, store)
+
+    assert store['list_key']['value'] == ['c', 'b', 'a']
+    assert socket.sent_messages == [Response.encode_resp_integer_bytes(3)]
+
+
+def test_lpush_handle_prepends_to_existing_list_in_correct_order():
+    store: dict = {'list_key': {'value': ['z']}}
+    socket = DummySocket()
+    payload = build_lpush_payload('b', 'a')
+
+    lpushCommand.handle(socket, payload, store)
+
+    print(store['list_key']['value'])
+    assert store['list_key']['value'] == ['a', 'b', 'z']
+    # assert socket.sent_messages == [Response.encode_resp_integer_bytes(3)]
+
+
+def test_lrange_handles_tail_slice_with_negative_indices():
+    store = {'list_key': {'value': ['a', 'b', 'c', 'd', 'e']}}
+    socket = DummySocket()
+    payload = build_lrange_payload(-2, -1)
+
+    lrangeCommand.handle(socket, payload, store)
+
+    assert socket.sent_messages == [Response.encode_resp_array_bytes(['d', 'e'])]
+
+
+def test_lrange_handles_positive_start_and_negative_end_index():
+    store = {'list_key': {'value': ['a', 'b', 'c', 'd', 'e']}}
+    socket = DummySocket()
+    payload = build_lrange_payload(2, -1)
+
+    lrangeCommand.handle(socket, payload, store)
+
+    assert socket.sent_messages == [Response.encode_resp_array_bytes(['c', 'd', 'e'])]
+
+
+def test_lrange_negative_start_out_of_range_maps_to_zero():
+    store = {'list_key': {'value': ['a', 'b', 'c', 'd', 'e']}}
+    socket = DummySocket()
+    payload = build_lrange_payload(-6, -1)
+
+    lrangeCommand.handle(socket, payload, store)
+
+    assert socket.sent_messages == [Response.NULL_ARRAY_STRING_BYTES]
+
+
+def test_lrange_negative_end_out_of_range_maps_to_zero():
+    store = {'list_key': {'value': ['a', 'b', 'c', 'd', 'e']}}
+    socket = DummySocket()
+    payload = build_lrange_payload(0, -6)
+
+    lrangeCommand.handle(socket, payload, store)
+
+    assert socket.sent_messages == [Response.NULL_ARRAY_STRING_BYTES]
 
 
 # RESP Encoding Test Cases

@@ -17,7 +17,7 @@ CARRIAGE_RETURN: str = "\r"
 class KVStore:
     def __init__(self):
         self.selector = selectors.DefaultSelector()
-        self.commands: list[Command] = [Get(), Set(), Ping(), Echo(), RPush(), LRange()]
+        self.commands: list[Command] = [Get(), Set(), Ping(), Echo(), RPush(), LPush(), LRange()]
         self.store = {}
 
     def accept_connection(self, server_sock: socket):
@@ -130,8 +130,9 @@ class LRange(Command):
         else:
             array: list = value_dict.get("value")
             start_index, end_index = LRange.get_start_and_end_indices(data_list, len(array))
-            if start_index >= end_index:
+            if start_index < 0 or end_index >= len(array) or start_index > end_index:
                 client_socket.send(Response.encode_resp_array_bytes([]))
+                return
             client_socket.send(Response.encode_resp_array_bytes(array[start_index:end_index + 1]))
 
 
@@ -159,6 +160,38 @@ class Get(Command):
                 client_socket.send(Response.encode_resp_string_bytes(value_dict["value"]))
         else:
             client_socket.send(Response.NULL_BULK_STRING_BYTES)
+
+
+class LPush(Command):
+
+    def __init__(self):
+        self.name = "LPUSH"
+
+    def is_command(self, data_list: list[str]) -> bool:
+        return len(data_list) >= 8 and data_list[2].upper() == self.name
+
+    @staticmethod
+    def get_key(data_list: list[str]) -> Union[str, None]:
+        return data_list[4]
+
+    @staticmethod
+    def get_values_to_insert(data_list: list[str]) -> list[str]:
+        return data_list[6: len(data_list): 2][::-1]
+
+    def handle(self, client_socket: socket, data_list: list[str], store: dict):
+        key = self.get_key(data_list)
+        values_to_insert: list = self.get_values_to_insert(data_list)
+        if key not in store:
+            store[key] = {}
+        value_dict = store.get(key)
+        if "value" not in value_dict:
+            value_dict["value"] = list()
+        for item in value_dict["value"]:
+            values_to_insert.append(item)
+        value_dict["value"] = values_to_insert
+        size: int = len(value_dict["value"])
+        print(store[key])
+        client_socket.send(Response.encode_resp_integer_bytes(size))
 
 
 class RPush(Command):
