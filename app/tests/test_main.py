@@ -103,10 +103,21 @@ def test_get_values_to_insert():
     assert rpushCommand.get_key(data) == "list_key"
     assert rpushCommand.get_values_to_insert(data) == ["foo", "bar", "baz"]
 
+
 # LRange Test Cases
 def test_LRange_is_command():
     data = ['*4', '$6', 'LRANGE', '$8', 'list_key', '$1', '0', '$1', '2', '']
     assert lrangeCommand.is_command(data)
+
+
+def test_lrange_index_extraction():
+    data = ['*4', '$6', 'LRANGE', '$8', 'list_key', '$1', '0', '$1', '2', '']
+    assert lrangeCommand.get_start_and_end_indices(data, 3) == (0, 2)
+    assert lrangeCommand.get_start_and_end_indices(['*4', '$6', 'LRANGE', '$8', 'list_key', '$1', '-2', '$1', '-1', ''],
+                                                   5) == (3, 4)
+    assert lrangeCommand.get_start_and_end_indices(['*4', '$6', 'LRANGE', '$8', 'list_key', '$1', '-3', '$1', '-1', ''],
+                                                   5) == (2, 4)
+
 
 # RESP Encoding Test Cases
 

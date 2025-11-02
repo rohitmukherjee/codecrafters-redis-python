@@ -114,19 +114,24 @@ class LRange(Command):
         return data_list[4]
 
     @staticmethod
-    def get_start_and_end_indices(data_list: list[str]) -> tuple[int, int]:
-        return int(data_list[6]), int(data_list[8])
+    def get_start_and_end_indices(data_list: list[str], array_length: int) -> tuple[int, int]:
+        start_index, end_index = int(data_list[6]), int(data_list[8])
+        if start_index < 0:
+            start_index = array_length + start_index
+        if end_index < 0:
+            end_index = array_length + end_index
+        return start_index, end_index
 
     def handle(self, client_socket: socket, data_list: list[str], store: dict):
         key: str = LRange.get_key(data_list)
-        start_index, end_index = LRange.get_start_and_end_indices(data_list)
         value_dict: dict = store.get(key)
-        if start_index < 0 or value_dict is None or "value" not in value_dict:
+        if value_dict is None or "value" not in value_dict:
             client_socket.send(Response.encode_resp_array_bytes([]))
         else:
             array: list = value_dict.get("value")
-            if end_index < 0:
-                end_index = len(array) - end_index
+            start_index, end_index = LRange.get_start_and_end_indices(data_list, len(array))
+            if start_index >= end_index:
+                client_socket.send(Response.encode_resp_array_bytes([]))
             client_socket.send(Response.encode_resp_array_bytes(array[start_index:end_index + 1]))
 
 
